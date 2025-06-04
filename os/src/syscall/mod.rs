@@ -29,6 +29,20 @@ use process::*;
 
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
+    // 统计系统调用次数
+    let index = match syscall_id {
+        SYSCALL_WRITE => 0,
+        SYSCALL_EXIT => 1,
+        SYSCALL_YIELD => 2,
+        SYSCALL_GET_TIME => 3,
+        SYSCALL_TRACE => 4,
+        _ => 5, // 无效索引，不统计
+    };
+    
+    if index < 5 {
+        crate::task::increase_syscall_times(index);
+    }
+    
     match syscall_id {
         SYSCALL_WRITE => sys_write(args[0], args[1] as *const u8, args[2]),
         SYSCALL_EXIT => sys_exit(args[0] as i32),

@@ -43,6 +43,8 @@ pub struct TaskManager {
 pub struct TaskManagerInner {
     /// task list
     tasks: [TaskControlBlock; MAX_APP_NUM],
+    /// 系统调用统计: [任务ID][系统调用索引] = 调用次数
+    syscall_times: [[usize; 5]; MAX_APP_NUM],
     /// id of current `Running` task
     current_task: usize,
 }
@@ -64,6 +66,7 @@ lazy_static! {
             inner: unsafe {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
+                    syscall_times: [[0; 5]; MAX_APP_NUM],
                     current_task: 0,
                 })
             },
@@ -135,6 +138,32 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    /// 增加当前任务的系统调用统计
+    fn increase_syscall_times(&self, syscall_index: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        if syscall_index < 5 {
+            inner.syscall_times[current][syscall_index] += 1;
+        }
+    }
+    
+    /// 获取当前任务指定系统调用的次数
+    fn get_syscall_times(&self, syscall_id: usize) -> isize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        
+        let index = match syscall_id {
+            64 => 0,   // SYSCALL_WRITE
+            93 => 1,   // SYSCALL_EXIT
+            124 => 2,  // SYSCALL_YIELD
+            169 => 3,  // SYSCALL_GET_TIME
+            410 => 4,  // SYSCALL_TRACE
+            _ => return -1,
+        };
+        
+        inner.syscall_times[current][index] as isize
+    }
 }
 
 /// Run the first task in task list.
@@ -168,4 +197,14 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// 增加系统调用统计
+pub fn increase_syscall_times(syscall_index: usize) {
+    TASK_MANAGER.increase_syscall_times(syscall_index);
+}
+
+/// 获取系统调用统计
+pub fn get_syscall_times(syscall_id: usize) -> isize {
+    TASK_MANAGER.get_syscall_times(syscall_id)
 }

@@ -31,17 +31,43 @@ mod process;
 use fs::*;
 use process::*;
 
+use crate::task::increment_syscall_count;
+
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
     match syscall_id {
-        SYSCALL_WRITE => sys_write(args[0], args[1] as *const u8, args[2]),
-        SYSCALL_EXIT => sys_exit(args[0] as i32),
-        SYSCALL_YIELD => sys_yield(),
-        SYSCALL_GET_TIME => sys_get_time(args[0] as *mut TimeVal, args[1]),
-        SYSCALL_TRACE => sys_trace(args[0], args[1], args[2]),
-        SYSCALL_MMAP => sys_mmap(args[0], args[1], args[2]),
-        SYSCALL_MUNMAP => sys_munmap(args[0], args[1]),
-        SYSCALL_SBRK => sys_sbrk(args[0] as i32),
+        SYSCALL_WRITE =>{ 
+            increment_syscall_count(0);
+            sys_write(args[0], args[1] as *const u8, args[2])
+        }
+        SYSCALL_EXIT => {
+            increment_syscall_count(1);
+            sys_exit(args[0] as i32);
+        }
+        SYSCALL_YIELD => {
+            increment_syscall_count(2);
+            sys_yield()
+        }
+        SYSCALL_GET_TIME => {
+            increment_syscall_count(3);
+            sys_get_time(args[0] as *mut TimeVal, args[1])
+        }
+        SYSCALL_TRACE => {
+            increment_syscall_count(4);
+            sys_trace(args[0], args[1], args[2])
+        }
+        SYSCALL_MMAP => {
+            increment_syscall_count(5);
+            sys_mmap(args[0], args[1], args[2])
+        }
+        SYSCALL_MUNMAP => {
+            increment_syscall_count(6);
+            sys_munmap(args[0], args[1])
+        }
+        SYSCALL_SBRK => {
+            increment_syscall_count(7);
+            sys_sbrk(args[0] as i32)
+        }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
 }

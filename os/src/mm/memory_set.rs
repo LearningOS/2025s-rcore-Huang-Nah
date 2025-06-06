@@ -262,6 +262,51 @@ impl MemorySet {
             false
         }
     }
+
+    /// Check if an exact area exists with given VPN range
+    #[allow(unused)]
+    pub fn find_exact_area(&self, start_vpn: VirtPageNum, end_vpn: VirtPageNum) -> bool {
+        println!("[find_exact_area] Looking for start_vpn={:?}, end_vpn={:?}", start_vpn, end_vpn);
+        for (i, area) in self.areas.iter().enumerate() {
+            println!("[find_exact_area] Area {}: start={:?}, end={:?}", i, area.vpn_range.get_start(), area.vpn_range.get_end());
+            if area.vpn_range.get_start() == start_vpn && area.vpn_range.get_end() == end_vpn {
+                println!("[find_exact_area] Found exact match at area {}", i);
+                return true;
+            }
+        }
+        println!("[find_exact_area] No exact match found");
+        false
+    }
+
+    /// Remove memory area with given start virtual page number
+    #[allow(unused)]
+    pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum) -> bool {
+        let mut area_to_remove = None;
+        for (index, area) in self.areas.iter().enumerate() {
+            if area.vpn_range.get_start() == start_vpn {
+                area_to_remove = Some(index);
+                break;
+            }
+        }
+
+        if let Some(index) = area_to_remove {
+            let mut area = self.areas.remove(index);
+            area.unmap(&mut self.page_table);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Manually unmap pages in a range
+    #[allow(unused)]
+    pub fn unmap_pages(&mut self, start: usize, len: usize) {
+        let page_size_cnt = (len + PAGE_SIZE - 1) / PAGE_SIZE;
+        for i in 0..page_size_cnt {
+            let vpn = VirtAddr::from(start + i * PAGE_SIZE).floor();
+            self.page_table.unmap(vpn);
+        }
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {

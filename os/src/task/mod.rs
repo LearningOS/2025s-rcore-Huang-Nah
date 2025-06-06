@@ -14,14 +14,16 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::config::PAGE_SIZE;
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
 use lazy_static::*;
+use alloc::vec;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
-
+use crate::mm::{VirtAddr, VirtPageNum, MapPermission};
 pub use context::TaskContext;
 
 /// The task manager, where all the tasks are managed.
@@ -46,6 +48,8 @@ struct TaskManagerInner {
     tasks: Vec<TaskControlBlock>,
     /// id of current `Running` task
     current_task: usize,
+    /// syscall count for each task [task_id][syscall_id]
+    syscall_cnt: Vec<[usize; 8]>,
 }
 
 lazy_static! {
@@ -64,6 +68,7 @@ lazy_static! {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
+                    syscall_cnt: vec![[0; 8]; num_app],
                 })
             },
         }
@@ -153,6 +158,93 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    /// Increment syscall count for current task
+    fn increment_syscall_count(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        if syscall_id < 8 {
+            inner.syscall_cnt[current][syscall_id] += 1;
+        }
+    }
+
+    /// Get syscall count for current task
+    fn get_syscall_count(&self, syscall_id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        if syscall_id < 8 {
+            inner.syscall_cnt[current][syscall_id]
+        } else {
+            0
+        }
+    }
+
+    fn current_task_mmap(&self, start:usize, len:usize,permissions: MapPermission)-> isize{
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let current_task = &mut inner.tasks[current];
+        let memoryset_now = &mut current_task.memory_set;
+
+        let page_size_cnt = (len + PAGE_SIZE - 1)/PAGE_SIZE;
+        println!("[mmap] Checking overlap for {} pages starting at 0x{:x}", page_size_cnt, start);
+        for i in 0..page_size_cnt{
+            let vpn: VirtPageNum = VirtAddr::from(start + i * PAGE_SIZE).floor();
+            let translation = memoryset_now.translate(vpn);
+            println!("[mmap] Checking VPN {:?}: translation = {:?}", vpn, translation);
+            // Check if the page is actually valid (not just mapped with bits = 0)
+            if let Some(pte) = translation {
+                if pte.is_valid() {
+                    println!("[mmap] Overlap detected at VPN {:?}, returning -1", vpn);
+                    return -1;
+                }
+            }
+        }
+        let start_va = VirtAddr::from(start);
+        let end_va = VirtAddr::from(start + len);
+        
+        // Debug output
+        println!("[mmap] start=0x{:x}, len=0x{:x}", start, len);
+        println!("[mmap] start_va={:?}, end_va={:?}", start_va, end_va);
+        println!("[mmap] start_vpn={:?}, end_vpn={:?}", start_va.floor(), end_va.ceil());
+        
+        memoryset_now.insert_framed_area(start_va, end_va, permissions);
+        0
+    }
+
+    fn current_task_munmap(&self, start: usize, len: usize) -> isize {
+        // Debug output at the very beginning
+        println!("[munmap] ENTRY: start=0x{:x}, len=0x{:x}", start, len);
+        
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let current_task = &mut inner.tasks[current];
+        let memory_set = &mut current_task.memory_set;
+        
+        let start_vpn: VirtPageNum = VirtAddr::from(start).floor();
+        let end_vpn: VirtPageNum = VirtAddr::from(start + len).ceil();
+        
+        // Debug output
+        println!("[munmap] start=0x{:x}, len=0x{:x}", start, len);
+        println!("[munmap] start_vpn={:?}, end_vpn={:?}", start_vpn, end_vpn);
+        
+        // Check if there's an exact area match
+        if !memory_set.find_exact_area(start_vpn, end_vpn) {
+            println!("[munmap] No exact area match found");
+            return -1; // No exact area match found
+        }
+
+        // Remove the area with the start VPN
+        if !memory_set.remove_area_with_start_vpn(start_vpn) {
+            println!("[munmap] Failed to remove area");
+            return -1; // Should not happen if we found the area above
+        }
+        
+        println!("[munmap] Success");
+        0
+    }
+    
+
+
 }
 
 /// Run the first task in task list.
@@ -202,3 +294,24 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
 }
+
+/// Increment syscall count for current task
+pub fn increment_syscall_count(syscall_id: usize) {
+    TASK_MANAGER.increment_syscall_count(syscall_id);
+}
+
+/// Get syscall count for current task
+pub fn get_syscall_count(syscall_id: usize) -> usize {
+    TASK_MANAGER.get_syscall_count(syscall_id)
+}
+
+/// Public interface for mmap
+pub fn current_task_mmap(start: usize, len: usize, permissions: MapPermission) -> isize {
+    TASK_MANAGER.current_task_mmap(start, len, permissions)
+}
+
+/// Public interface for munmap
+pub fn current_task_munmap(start: usize, len: usize) -> isize {
+    TASK_MANAGER.current_task_munmap(start, len)
+}
+

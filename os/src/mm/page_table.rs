@@ -29,6 +29,7 @@ bitflags! {
 
 #[derive(Copy, Clone)]
 #[repr(C)]
+#[derive(Debug)]
 /// page table entry structure
 pub struct PageTableEntry {
     /// bits of page table entry
@@ -166,16 +167,86 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
     while start < end {
         let start_va = VirtAddr::from(start);
         let mut vpn = start_va.floor();
-        let ppn = page_table.translate(vpn).unwrap().ppn();
-        vpn.step();
-        let mut end_va: VirtAddr = vpn.into();
-        end_va = end_va.min(VirtAddr::from(end));
-        if end_va.page_offset() == 0 {
-            v.push(&mut ppn.get_bytes_array()[start_va.page_offset()..]);
+        if let Some(pte) = page_table.translate(vpn) {
+            // Check if page is valid and user accessible
+            if !pte.is_valid() || !pte.flags().contains(PTEFlags::U) {
+                return Vec::new(); // Return empty vector on permission error
+            }
+            let ppn = pte.ppn();
+            vpn.step();
+            let mut end_va: VirtAddr = vpn.into();
+            end_va = end_va.min(VirtAddr::from(end));
+            if end_va.page_offset() == 0 {
+                v.push(&mut ppn.get_bytes_array()[start_va.page_offset()..]);
+            } else {
+                v.push(&mut ppn.get_bytes_array()[start_va.page_offset()..end_va.page_offset()]);
+            }
+            start = end_va.into();
         } else {
-            v.push(&mut ppn.get_bytes_array()[start_va.page_offset()..end_va.page_offset()]);
+            return Vec::new(); // Return empty vector if page not found
         }
-        start = end_va.into();
+    }
+    v
+}
+
+/// Translate a ptr[u8] array for reading with permission check
+pub fn translated_byte_buffer_read(token: usize, ptr: *const u8, len: usize) -> Vec<&'static mut [u8]> {
+    let page_table = PageTable::from_token(token);
+    let mut start = ptr as usize;
+    let end = start + len;
+    let mut v = Vec::new();
+    while start < end {
+        let start_va = VirtAddr::from(start);
+        let mut vpn = start_va.floor();
+        if let Some(pte) = page_table.translate(vpn) {
+            // Check if page is valid, user accessible, and readable
+            if !pte.is_valid() || !pte.flags().contains(PTEFlags::U) || !pte.flags().contains(PTEFlags::R) {
+                return Vec::new(); // Return empty vector on permission error
+            }
+            let ppn = pte.ppn();
+            vpn.step();
+            let mut end_va: VirtAddr = vpn.into();
+            end_va = end_va.min(VirtAddr::from(end));
+            if end_va.page_offset() == 0 {
+                v.push(&mut ppn.get_bytes_array()[start_va.page_offset()..]);
+            } else {
+                v.push(&mut ppn.get_bytes_array()[start_va.page_offset()..end_va.page_offset()]);
+            }
+            start = end_va.into();
+        } else {
+            return Vec::new(); // Return empty vector if page not found
+        }
+    }
+    v
+}
+
+/// Translate a ptr[u8] array for writing with permission check
+pub fn translated_byte_buffer_write(token: usize, ptr: *const u8, len: usize) -> Vec<&'static mut [u8]> {
+    let page_table = PageTable::from_token(token);
+    let mut start = ptr as usize;
+    let end = start + len;
+    let mut v = Vec::new();
+    while start < end {
+        let start_va = VirtAddr::from(start);
+        let mut vpn = start_va.floor();
+        if let Some(pte) = page_table.translate(vpn) {
+            // Check if page is valid, user accessible, and writable
+            if !pte.is_valid() || !pte.flags().contains(PTEFlags::U) || !pte.flags().contains(PTEFlags::W) {
+                return Vec::new(); // Return empty vector on permission error
+            }
+            let ppn = pte.ppn();
+            vpn.step();
+            let mut end_va: VirtAddr = vpn.into();
+            end_va = end_va.min(VirtAddr::from(end));
+            if end_va.page_offset() == 0 {
+                v.push(&mut ppn.get_bytes_array()[start_va.page_offset()..]);
+            } else {
+                v.push(&mut ppn.get_bytes_array()[start_va.page_offset()..end_va.page_offset()]);
+            }
+            start = end_va.into();
+        } else {
+            return Vec::new(); // Return empty vector if page not found
+        }
     }
     v
 }

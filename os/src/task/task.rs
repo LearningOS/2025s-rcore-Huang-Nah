@@ -16,10 +16,8 @@ pub struct TaskControlBlock {
     // Immutable
     /// Process identifier
     pub pid: PidHandle,
-
     /// Kernel stack corresponding to PID
     pub kernel_stack: KernelStack,
-
     /// Mutable
     inner: UPSafeCell<TaskControlBlockInner>,
 }
@@ -52,6 +50,12 @@ pub struct TaskControlBlockInner {
 
     /// Application address space
     pub memory_set: MemorySet,
+        // the time execated for current process
+    pub stride: usize,
+
+    // priority for the process
+    pub priority:isize,
+
 
     /// Parent process of the current process.
     /// Weak will not affect the reference count of the parent
@@ -118,6 +122,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    stride:0,
+                    priority:16
                 })
             },
         };
@@ -186,6 +192,8 @@ impl TaskControlBlock {
                     task_cx: TaskContext::goto_trap_return(kernel_stack_top),
                     task_status: TaskStatus::Ready,
                     memory_set,
+                    priority: parent_inner.priority,
+                    stride: 0,
                     parent: Some(Arc::downgrade(self)),
                     children: Vec::new(),
                     exit_code: 0,

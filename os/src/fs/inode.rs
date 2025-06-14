@@ -53,9 +53,20 @@ impl OSInode {
         }
         v
     }
+    /// Clear the data in current inode
+    pub fn clear(&self) {
+        let inner = self.inner.exclusive_access();
+        inner.inode.clear();
+    }
+    /// Write data at offset
+    pub fn write_at(&self, offset: usize, data: &[u8]) -> usize {
+        let inner = self.inner.exclusive_access();
+        inner.inode.write_at(offset, data)
+    }
 }
 
 lazy_static! {
+    /// ROOT_INODE is the root inode of the filesystem
     pub static ref ROOT_INODE: Arc<Inode> = {
         let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
         Arc::new(EasyFileSystem::root_inode(&efs))
